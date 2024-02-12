@@ -3,32 +3,39 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
-
 public enum AnimalState
 {
     Idle,
     Moving,
+    Chase,
 }
+
 [RequireComponent(typeof(NavMeshAgent))]
 public class Animal : MonoBehaviour
 {
     [Header("Wander")]
-    public float wanderDistance = 50f; // how dor the animal can move in one go.
-    public float walkSpeed = 5f;
-    public float maxWalkTime = 6f;
+    [SerializeField] private float wanderDistance = 50f; // How far the animal can move in one go.
+    [SerializeField] private float walkSpeed = 5f;
+    [SerializeField] private float maxWalkTime = 6f;
 
     [Header("Idle")]
-    public float idleTime = 5f; //How long the animal takes a break for.
+    [SerializeField] private float idleTime = 5f; // How long the animal takes a break for.
+
+    [Header("Chase")]
+    [SerializeField] private float runSpeed = 8f;
+
+    [Header("Attributes")]
+    [SerializeField] private int health = 10;
 
     protected NavMeshAgent navMeshAgent;
     protected AnimalState currentState = AnimalState.Idle;
 
     private void Start()
     {
-        InitializeAnimal();
+        InitialiseAnimal();
     }
 
-    protected virtual void InitializeAnimal()
+    protected virtual void InitialiseAnimal()
     {
         navMeshAgent = GetComponent<NavMeshAgent>();
         navMeshAgent.speed = walkSpeed;
@@ -40,32 +47,44 @@ public class Animal : MonoBehaviour
     protected virtual void UpdateState()
     {
         switch (currentState)
-        {   
+        {
             case AnimalState.Idle:
                 HandleIdleState();
                 break;
             case AnimalState.Moving:
                 HandleMovingState();
                 break;
-            default:
+            case AnimalState.Chase:
+                HandleChaseState();
                 break;
         }
     }
 
-    protected Vector3 GetRandomNavPosition(Vector3 origin, float distance)
+    protected Vector3 GetRandomNavMeshPosition(Vector3 origin, float distance)
     {
-        Vector3 randomDirection = Random.insideUnitSphere * distance;
-        randomDirection += origin;
-        NavMeshHit navMeshHit;
+        for (int i = 0; i < 5; i++)
+        {
+            Vector3 randomDirection = Random.insideUnitSphere * distance;
+            randomDirection += origin;
+            NavMeshHit navMeshHit;
 
-        if (NavMesh.SamplePosition(randomDirection, out navMeshHit, distance, NavMesh.AllAreas))
-        {
-            return navMeshHit.position;
+            if (NavMesh.SamplePosition(randomDirection, out navMeshHit, distance, NavMesh.AllAreas))
+            {
+                return navMeshHit.position;
+            }
         }
-        else
-        {
-            return GetRandomNavPosition(origin, distance);
-        }
+
+        return origin;
+    }
+
+    protected virtual void CheckChaseConditions()
+    {
+
+    }
+
+    protected virtual void HandleChaseState()
+    {
+        StopAllCoroutines();
     }
 
     protected virtual void HandleIdleState()
@@ -78,10 +97,10 @@ public class Animal : MonoBehaviour
         float waitTime = Random.Range(idleTime / 2, idleTime * 2);
         yield return new WaitForSeconds(waitTime);
 
-        Vector3 randomDestination = GetRandomNavPosition(transform.position, wanderDistance);
+        Vector3 randomDestination = GetRandomNavMeshPosition(transform.position, wanderDistance);
 
         navMeshAgent.SetDestination(randomDestination);
-        SetState(AnimalState.Moving);//8888
+        SetState(AnimalState.Moving);
     }
 
     protected virtual void HandleMovingState()
@@ -93,27 +112,28 @@ public class Animal : MonoBehaviour
     {
         float startTime = Time.time;
 
-        while (navMeshAgent.remainingDistance > navMeshAgent.stoppingDistance)
+        while (navMeshAgent.pathPending || navMeshAgent.remainingDistance > navMeshAgent.stoppingDistance && navMeshAgent.isActiveAndEnabled)
         {
             if (Time.time - startTime >= maxWalkTime)
             {
                 navMeshAgent.ResetPath();
-                SetState(AnimalState.Idle);//555
+                SetState(AnimalState.Idle);
                 yield break;
             }
 
+            CheckChaseConditions();
+
             yield return null;
         }
-        //Destination has been reached
-        SetState(AnimalState.Idle);//6666
+
+        // Destination has been reached
+        SetState(AnimalState.Idle);
     }
 
     protected void SetState(AnimalState newState)
     {
         if (currentState == newState)
-        {
             return;
-        }
 
         currentState = newState;
         OnStateChanged(newState);
@@ -121,6 +141,26 @@ public class Animal : MonoBehaviour
 
     protected virtual void OnStateChanged(AnimalState newState)
     {
+        if (newState == AnimalState.Moving)
+            navMeshAgent.speed = walkSpeed;
+
+        if (newState == AnimalState.Chase)
+            navMeshAgent.speed = runSpeed;
+
         UpdateState();
+    }
+
+    public virtual void RecieveDamage(int damage)
+    {
+        health -= damage;
+
+        if (health <= 0)
+            Die();
+    }
+
+    protected virtual void Die()
+    {
+        StopAllCoroutines();
+        Destroy(gameObject);
     }
 }
